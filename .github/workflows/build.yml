@@ -1,149 +1,170 @@
-name: ChiquiOS Linux x86 Build
+name: ChiquiOS Linux x86
 
 on:
-  push:
-  workflow_dispatch:
+push:
+workflow_dispatch:
 
 permissions:
-  contents: read
+contents: read
 
 jobs:
-  build:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 360
+build:
+runs-on: ubuntu-22.04
+timeout-minutes: 360
 
-    steps:
-      - name: Descargar repositorio
-        uses: actions/checkout@v4
-
-      - name: Instalar herramientas
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            nasm make build-essential bc bison flex \
-            libssl-dev libelf-dev libncurses-dev \
-            dwarves perl python3 wget xz-utils cpio
-
-      - name: Compilar bootloader propio
-        run: |
-          make clean
-          make
-          make check
-
-      - name: Descargar kernel Linux
-        run: |
-          wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.20.tar.xz
-          tar -xf linux-6.12.20.tar.xz
-
-      - name: Configurar compatibilidad x86
-        working-directory: linux-6.12.20
-        run: |
-          make ARCH=i386 i386_defconfig
-
-          scripts/config --enable CONFIG_MODULES
-          scripts/config --enable CONFIG_BLK_DEV_INITRD
-          scripts/config --enable CONFIG_DEVTMPFS
-          scripts/config --enable CONFIG_DEVTMPFS_MOUNT
-          scripts/config --enable CONFIG_PROC_FS
-          scripts/config --enable CONFIG_SYSFS
-          scripts/config --enable CONFIG_TMPFS
-
-          # Discos y sistemas de archivos
-          scripts/config --enable CONFIG_BLK_DEV_SD
-          scripts/config --enable CONFIG_ATA
-          scripts/config --enable CONFIG_ATA_PIIX
-          scripts/config --enable CONFIG_SATA_AHCI
-          scripts/config --enable CONFIG_BLK_DEV_IDE
-          scripts/config --enable CONFIG_SCSI
-          scripts/config --enable CONFIG_EXT4_FS
-          scripts/config --enable CONFIG_VFAT_FS
-          scripts/config --enable CONFIG_FAT_FS
-          scripts/config --enable CONFIG_ISO9660_FS
-          scripts/config --enable CONFIG_UDF_FS
-
-          # USB
-          scripts/config --enable CONFIG_USB
-          scripts/config --enable CONFIG_USB_EHCI_HCD
-          scripts/config --enable CONFIG_USB_XHCI_HCD
-          scripts/config --enable CONFIG_USB_OHCI_HCD
-          scripts/config --enable CONFIG_USB_UHCI_HCD
-          scripts/config --enable CONFIG_USB_STORAGE
-          scripts/config --enable CONFIG_HID
-          scripts/config --enable CONFIG_USB_HID
-
-          # Red física y virtual
-          scripts/config --enable CONFIG_NET
-          scripts/config --enable CONFIG_NETDEVICES
-          scripts/config --enable CONFIG_ETHERNET
-          scripts/config --enable CONFIG_E1000
-          scripts/config --enable CONFIG_E1000E
-          scripts/config --enable CONFIG_8139TOO
-          scripts/config --enable CONFIG_PCNET32
-          scripts/config --enable CONFIG_VIRTIO
-          scripts/config --enable CONFIG_VIRTIO_PCI
-          scripts/config --enable CONFIG_VIRTIO_NET
-          scripts/config --enable CONFIG_VIRTIO_BLK
-
-          # Consola y periféricos
-          scripts/config --enable CONFIG_SERIAL_8250
-          scripts/config --enable CONFIG_SERIAL_8250_CONSOLE
-          scripts/config --enable CONFIG_INPUT
-          scripts/config --enable CONFIG_INPUT_KEYBOARD
-          scripts/config --enable CONFIG_INPUT_MOUSE
-
-          # Gráficos y audio
-          scripts/config --enable CONFIG_DRM
-          scripts/config --enable CONFIG_DRM_I915
-          scripts/config --enable CONFIG_DRM_RADEON
-          scripts/config --enable CONFIG_FB
-          scripts/config --enable CONFIG_SOUND
-          scripts/config --enable CONFIG_SND
-          scripts/config --enable CONFIG_SND_HDA_INTEL
-          scripts/config --enable CONFIG_SND_AC97_CODEC
-
-          # Bluetooth y Wi-Fi: si existen para esta arquitectura
-          scripts/config --enable CONFIG_BT
-          scripts/config --enable CONFIG_WLAN
-          scripts/config --enable CONFIG_CFG80211
-          scripts/config --enable CONFIG_MAC80211
-
-          # Mantener opciones válidas para este kernel
-          make ARCH=i386 olddefconfig
-
-      - name: Compilar kernel y módulos
-        working-directory: linux-6.12.20
-        run: |
-          make -j2 ARCH=i386 bzImage modules
-
-      - name: Instalar módulos
-        working-directory: linux-6.12.20
-        run: |
-          make ARCH=i386 \
-            INSTALL_MOD_PATH="$GITHUB_WORKSPACE/kernel-root" \
-            modules_install
-
-      - name: Preparar resultados
-        run: |
-          mkdir -p output
-
-          cp build/chiquios-test.img output/
-          cp build/boot.bin output/
-          cp build/stage2.bin output/
-
-          cp linux-6.12.20/arch/x86/boot/bzImage \
-            output/bzImage-i386
-
-          cp linux-6.12.20/.config \
-            output/kernel.config
-
-          tar -czf output/modules-i386.tar.gz \
-            -C kernel-root .
-
-          echo "Artefactos preparados."
-
-      - name: Publicar artefactos
-        uses: actions/upload-artifact@v4
-        with:
-          name: chiquios-linux-x86
-          path: output/
-          if-no-files-found: error
+steps:
+  - name: Descargar repositorio
+    uses: actions/checkout@v4
+  - name: Instalar herramientas
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y \
+        nasm make build-essential bc bison flex \
+        libssl-dev libelf-dev libncurses-dev \
+        dwarves perl python3 wget xz-utils cpio \
+        gzip busybox-static
+  - name: Compilar bootloader propio
+    run: |
+      make clean
+      make
+      make check
+  - name: Descargar kernel Linux
+    run: |
+      wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.20.tar.xz
+      tar -xf linux-6.12.20.tar.xz
+  - name: Configurar kernel x86 de 32 bits
+    working-directory: linux-6.12.20
+    run: |
+      make ARCH=i386 i386_defconfig
+      scripts/config --enable CONFIG_MODULES
+      scripts/config --enable CONFIG_BLK_DEV_INITRD
+      scripts/config --enable CONFIG_DEVTMPFS
+      scripts/config --enable CONFIG_DEVTMPFS_MOUNT
+      scripts/config --enable CONFIG_PROC_FS
+      scripts/config --enable CONFIG_SYSFS
+      scripts/config --enable CONFIG_TMPFS
+      # Discos y sistemas de archivos
+      scripts/config --enable CONFIG_BLK_DEV_SD
+      scripts/config --enable CONFIG_ATA
+      scripts/config --enable CONFIG_ATA_PIIX
+      scripts/config --enable CONFIG_SATA_AHCI
+      scripts/config --enable CONFIG_BLK_DEV_IDE
+      scripts/config --enable CONFIG_SCSI
+      scripts/config --enable CONFIG_EXT4_FS
+      scripts/config --enable CONFIG_VFAT_FS
+      scripts/config --enable CONFIG_FAT_FS
+      scripts/config --enable CONFIG_ISO9660_FS
+      scripts/config --enable CONFIG_UDF_FS
+      # USB y almacenamiento
+      scripts/config --enable CONFIG_USB
+      scripts/config --enable CONFIG_USB_EHCI_HCD
+      scripts/config --enable CONFIG_USB_XHCI_HCD
+      scripts/config --enable CONFIG_USB_OHCI_HCD
+      scripts/config --enable CONFIG_USB_UHCI_HCD
+      scripts/config --enable CONFIG_USB_STORAGE
+      scripts/config --enable CONFIG_HID
+      scripts/config --enable CONFIG_USB_HID
+      # Red física y virtual
+      scripts/config --enable CONFIG_NET
+      scripts/config --enable CONFIG_NETDEVICES
+      scripts/config --enable CONFIG_ETHERNET
+      scripts/config --enable CONFIG_E1000
+      scripts/config --enable CONFIG_E1000E
+      scripts/config --enable CONFIG_8139TOO
+      scripts/config --enable CONFIG_PCNET32
+      scripts/config --enable CONFIG_VIRTIO
+      scripts/config --enable CONFIG_VIRTIO_PCI
+      scripts/config --enable CONFIG_VIRTIO_NET
+      scripts/config --enable CONFIG_VIRTIO_BLK
+      # Consola, teclado y ratón
+      scripts/config --enable CONFIG_SERIAL_8250
+      scripts/config --enable CONFIG_SERIAL_8250_CONSOLE
+      scripts/config --enable CONFIG_INPUT
+      scripts/config --enable CONFIG_INPUT_KEYBOARD
+      scripts/config --enable CONFIG_INPUT_MOUSE
+      # Gráficos y audio
+      scripts/config --enable CONFIG_DRM
+      scripts/config --enable CONFIG_DRM_I915
+      scripts/config --enable CONFIG_DRM_RADEON
+      scripts/config --enable CONFIG_FB
+      scripts/config --enable CONFIG_SOUND
+      scripts/config --enable CONFIG_SND
+      scripts/config --enable CONFIG_SND_HDA_INTEL
+      scripts/config --enable CONFIG_SND_AC97_CODEC
+      # Bluetooth y Wi-Fi compatibles
+      scripts/config --enable CONFIG_BT
+      scripts/config --enable CONFIG_WLAN
+      scripts/config --enable CONFIG_CFG80211
+      scripts/config --enable CONFIG_MAC80211
+      make ARCH=i386 olddefconfig
+  - name: Compilar kernel y módulos
+    working-directory: linux-6.12.20
+    run: |
+      make -j2 ARCH=i386 bzImage modules
+  - name: Instalar módulos del kernel
+    working-directory: linux-6.12.20
+    run: |
+      make ARCH=i386 \
+        INSTALL_MOD_PATH="$GITHUB_WORKSPACE/kernel-root" \
+        modules_install
+  - name: Crear sistema raiz BusyBox
+    run: |
+      set -eu
+      ROOT="$GITHUB_WORKSPACE/initramfs"
+      mkdir -p "$ROOT"/bin
+      mkdir -p "$ROOT"/sbin
+      mkdir -p "$ROOT"/etc
+      mkdir -p "$ROOT"/proc
+      mkdir -p "$ROOT"/sys
+      mkdir -p "$ROOT"/dev
+      mkdir -p "$ROOT"/usr/bin
+      mkdir -p "$ROOT"/usr/sbin
+      cp /bin/busybox "$ROOT/bin/busybox"
+      chmod 755 "$ROOT/bin/busybox"
+      for app in sh mount mkdir cat ls dmesg; do
+        ln -sf busybox "$ROOT/bin/$app"
+      done
+      cat > "$ROOT/init" <<'INIT'
+      #!/bin/sh
+      export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+      mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+      mount -t proc proc /proc
+      mount -t sysfs sysfs /sys
+      echo ""
+      echo "ChiquiOS Linux"
+      echo "Kernel Linux x86 de 32 bits"
+      echo "Sistema raiz BusyBox iniciado"
+      echo ""
+      exec /bin/sh
+      INIT
+      chmod 755 "$ROOT/init"
+  - name: Empaquetar initramfs
+    run: |
+      set -eu
+      mkdir -p output
+      cd initramfs
+      find . -print0 \
+        | cpio --null -o --format=newc \
+        | gzip -9 > "$GITHUB_WORKSPACE/output/initramfs.cpio.gz"
+  - name: Preparar artefactos
+    run: |
+      set -eu
+      cp build/chiquios-test.img output/
+      cp build/boot.bin output/
+      cp build/stage2.bin output/
+      cp linux-6.12.20/arch/x86/boot/bzImage \
+        output/bzImage-i386
+      cp linux-6.12.20/.config \
+        output/kernel.config
+      tar -czf output/modules-i386.tar.gz \
+        -C kernel-root .
+      test -s output/bzImage-i386
+      test -s output/initramfs.cpio.gz
+      test -s output/modules-i386.tar.gz
+      echo "Kernel, módulos, initramfs y bootloader preparados."
+  - name: Publicar artefactos
+    uses: actions/upload-artifact@v4
+    with:
+      name: chiquios-linux-x86
+      path: output/
+      if-no-files-found: error
