@@ -1,8 +1,8 @@
 name: ChiquiOS Linux x86
 
 on:
-push:
-workflow_dispatch:
+push: {}
+workflow_dispatch: {}
 
 permissions:
 contents: read
@@ -18,12 +18,8 @@ steps:
   - name: Instalar herramientas
     run: |
       sudo apt-get update
-      sudo apt-get install -y \
-        nasm make build-essential bc bison flex \
-        libssl-dev libelf-dev libncurses-dev \
-        dwarves perl python3 wget xz-utils cpio \
-        gzip busybox-static
-  - name: Compilar bootloader propio
+      sudo apt-get install -y nasm make build-essential bc bison flex libssl-dev libelf-dev libncurses-dev dwarves perl python3 wget xz-utils cpio gzip busybox-static
+  - name: Compilar bootloader
     run: |
       make clean
       make
@@ -32,7 +28,7 @@ steps:
     run: |
       wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.20.tar.xz
       tar -xf linux-6.12.20.tar.xz
-  - name: Configurar kernel x86 de 32 bits
+  - name: Configurar kernel
     working-directory: linux-6.12.20
     run: |
       make ARCH=i386 i386_defconfig
@@ -42,32 +38,17 @@ steps:
       scripts/config --enable CONFIG_DEVTMPFS_MOUNT
       scripts/config --enable CONFIG_PROC_FS
       scripts/config --enable CONFIG_SYSFS
-      scripts/config --enable CONFIG_TMPFS
-      # Discos y sistemas de archivos
-      scripts/config --enable CONFIG_BLK_DEV_SD
-      scripts/config --enable CONFIG_ATA
-      scripts/config --enable CONFIG_ATA_PIIX
-      scripts/config --enable CONFIG_SATA_AHCI
-      scripts/config --enable CONFIG_BLK_DEV_IDE
-      scripts/config --enable CONFIG_SCSI
       scripts/config --enable CONFIG_EXT4_FS
       scripts/config --enable CONFIG_VFAT_FS
-      scripts/config --enable CONFIG_FAT_FS
       scripts/config --enable CONFIG_ISO9660_FS
-      scripts/config --enable CONFIG_UDF_FS
-      # USB y almacenamiento
+      scripts/config --enable CONFIG_ATA
+      scripts/config --enable CONFIG_SATA_AHCI
       scripts/config --enable CONFIG_USB
       scripts/config --enable CONFIG_USB_EHCI_HCD
       scripts/config --enable CONFIG_USB_XHCI_HCD
-      scripts/config --enable CONFIG_USB_OHCI_HCD
-      scripts/config --enable CONFIG_USB_UHCI_HCD
       scripts/config --enable CONFIG_USB_STORAGE
-      scripts/config --enable CONFIG_HID
-      scripts/config --enable CONFIG_USB_HID
-      # Red física y virtual
+      scripts/config --enable CONFIG_SCSI
       scripts/config --enable CONFIG_NET
-      scripts/config --enable CONFIG_NETDEVICES
-      scripts/config --enable CONFIG_ETHERNET
       scripts/config --enable CONFIG_E1000
       scripts/config --enable CONFIG_E1000E
       scripts/config --enable CONFIG_8139TOO
@@ -76,24 +57,13 @@ steps:
       scripts/config --enable CONFIG_VIRTIO_PCI
       scripts/config --enable CONFIG_VIRTIO_NET
       scripts/config --enable CONFIG_VIRTIO_BLK
-      # Consola, teclado y ratón
-      scripts/config --enable CONFIG_SERIAL_8250
-      scripts/config --enable CONFIG_SERIAL_8250_CONSOLE
-      scripts/config --enable CONFIG_INPUT
-      scripts/config --enable CONFIG_INPUT_KEYBOARD
-      scripts/config --enable CONFIG_INPUT_MOUSE
-      # Gráficos y audio
       scripts/config --enable CONFIG_DRM
       scripts/config --enable CONFIG_DRM_I915
       scripts/config --enable CONFIG_DRM_RADEON
-      scripts/config --enable CONFIG_FB
       scripts/config --enable CONFIG_SOUND
       scripts/config --enable CONFIG_SND
       scripts/config --enable CONFIG_SND_HDA_INTEL
-      scripts/config --enable CONFIG_SND_AC97_CODEC
-      # Bluetooth y Wi-Fi compatibles
       scripts/config --enable CONFIG_BT
-      scripts/config --enable CONFIG_WLAN
       scripts/config --enable CONFIG_CFG80211
       scripts/config --enable CONFIG_MAC80211
       make ARCH=i386 olddefconfig
@@ -101,24 +71,15 @@ steps:
     working-directory: linux-6.12.20
     run: |
       make -j2 ARCH=i386 bzImage modules
-  - name: Instalar módulos del kernel
+  - name: Instalar módulos
     working-directory: linux-6.12.20
     run: |
-      make ARCH=i386 \
-        INSTALL_MOD_PATH="$GITHUB_WORKSPACE/kernel-root" \
-        modules_install
-  - name: Crear sistema raiz BusyBox
+      make ARCH=i386 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/kernel-root" modules_install
+  - name: Crear sistema raíz
     run: |
       set -eu
       ROOT="$GITHUB_WORKSPACE/initramfs"
-      mkdir -p "$ROOT"/bin
-      mkdir -p "$ROOT"/sbin
-      mkdir -p "$ROOT"/etc
-      mkdir -p "$ROOT"/proc
-      mkdir -p "$ROOT"/sys
-      mkdir -p "$ROOT"/dev
-      mkdir -p "$ROOT"/usr/bin
-      mkdir -p "$ROOT"/usr/sbin
+      mkdir -p "$ROOT"/bin "$ROOT"/dev "$ROOT"/proc "$ROOT"/sys "$ROOT"/etc "$ROOT"/usr/bin
       cp /bin/busybox "$ROOT/bin/busybox"
       chmod 755 "$ROOT/bin/busybox"
       for app in sh mount mkdir cat ls dmesg; do
@@ -130,38 +91,28 @@ steps:
       mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
       mount -t proc proc /proc
       mount -t sysfs sysfs /sys
-      echo ""
-      echo "ChiquiOS Linux"
+      echo "ChiquiOS Linux iniciado"
       echo "Kernel Linux x86 de 32 bits"
-      echo "Sistema raiz BusyBox iniciado"
-      echo ""
       exec /bin/sh
       INIT
       chmod 755 "$ROOT/init"
-  - name: Empaquetar initramfs
+  - name: Empaquetar sistema raíz
     run: |
-      set -eu
       mkdir -p output
       cd initramfs
-      find . -print0 \
-        | cpio --null -o --format=newc \
-        | gzip -9 > "$GITHUB_WORKSPACE/output/initramfs.cpio.gz"
+      find . -print0 | cpio --null -o --format=newc | gzip -9 > "$GITHUB_WORKSPACE/output/initramfs.cpio.gz"
   - name: Preparar artefactos
     run: |
       set -eu
       cp build/chiquios-test.img output/
       cp build/boot.bin output/
       cp build/stage2.bin output/
-      cp linux-6.12.20/arch/x86/boot/bzImage \
-        output/bzImage-i386
-      cp linux-6.12.20/.config \
-        output/kernel.config
-      tar -czf output/modules-i386.tar.gz \
-        -C kernel-root .
+      cp linux-6.12.20/arch/x86/boot/bzImage output/bzImage-i386
+      cp linux-6.12.20/.config output/kernel.config
+      tar -czf output/modules-i386.tar.gz -C kernel-root .
       test -s output/bzImage-i386
       test -s output/initramfs.cpio.gz
       test -s output/modules-i386.tar.gz
-      echo "Kernel, módulos, initramfs y bootloader preparados."
   - name: Publicar artefactos
     uses: actions/upload-artifact@v4
     with:
