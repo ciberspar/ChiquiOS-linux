@@ -23,13 +23,21 @@ jobs:
       - name: Compilar bootloader
         run: make
 
+
       - name: Verificar segunda etapa
         run: |
           test -s build/boot.bin
           test -s build/stage2.bin
           test "$(stat -c%s build/boot.bin)" -eq 512
-          dd if=build/chiquios-test.img of=build/stage2-from-image.bin bs=512 skip=1 count=1 status=none
-          cmp -n 512 build/stage2.bin build/stage2-from-image.bin
+
+          dd if=build/chiquios-test.img \
+            of=build/stage2-from-image.bin \
+            bs=512 skip=1 count=1 status=none
+
+          cmp build/stage2.bin \
+            <(head -c "$(stat -c%s build/stage2.bin)" \
+            build/stage2-from-image.bin)
+
           echo "Primera y segunda etapa verificadas."
 
       - name: Guardar imagen
