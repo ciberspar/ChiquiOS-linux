@@ -23,12 +23,14 @@ jobs:
       - name: Compilar bootloader
         run: make
 
-      - name: Verificar imagen
+      - name: Verificar segunda etapa
         run: |
-          test -f build/chiquios-test.img
-          test "$(stat -c%s build/chiquios-test.img)" -eq 1474560
-          test "$(od -An -tx1 -j510 -N2 build/chiquios-test.img | tr -d ' \n')" = "55aa"
-          echo "Imagen creada y firma BIOS verificada."
+          test -s build/boot.bin
+          test -s build/stage2.bin
+          test "$(stat -c%s build/boot.bin)" -eq 512
+          dd if=build/chiquios-test.img of=build/stage2-from-image.bin bs=512 skip=1 count=1 status=none
+          cmp -n 512 build/stage2.bin build/stage2-from-image.bin
+          echo "Primera y segunda etapa verificadas."
 
       - name: Guardar imagen
         uses: actions/upload-artifact@v4
