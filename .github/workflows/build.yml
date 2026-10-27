@@ -1,121 +1,108 @@
-name: ChiquiOS Linux x86
+
+name: ChiquiOS Alpine Experimental
 
 on:
-push: {}
-workflow_dispatch: {}
+  workflow_dispatch:
+  push:
+    branches:
+      - alpine-experimental
+    paths:
+      - ".github/workflows/build.yml"
 
 permissions:
-contents: read
+  contents: read
 
 jobs:
-build:
-runs-on: ubuntu-22.04
-timeout-minutes: 360
+  alpine-x86:
+    name: Alpine Linux x86 (32 bits)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
 
-steps:
-  - name: Descargar repositorio
-    uses: actions/checkout@v4
-  - name: Instalar herramientas
-    run: |
-      sudo apt-get update
-      sudo apt-get install -y nasm make build-essential bc bison flex libssl-dev libelf-dev libncurses-dev dwarves perl python3 wget xz-utils cpio gzip busybox-static
-  - name: Compilar bootloader
-    run: |
-      make clean
-      make
-      make check
-  - name: Descargar kernel Linux
-    run: |
-      wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.20.tar.xz
-      tar -xf linux-6.12.20.tar.xz
-  - name: Configurar kernel
-    working-directory: linux-6.12.20
-    run: |
-      make ARCH=i386 i386_defconfig
-      scripts/config --enable CONFIG_MODULES
-      scripts/config --enable CONFIG_BLK_DEV_INITRD
-      scripts/config --enable CONFIG_DEVTMPFS
-      scripts/config --enable CONFIG_DEVTMPFS_MOUNT
-      scripts/config --enable CONFIG_PROC_FS
-      scripts/config --enable CONFIG_SYSFS
-      scripts/config --enable CONFIG_EXT4_FS
-      scripts/config --enable CONFIG_VFAT_FS
-      scripts/config --enable CONFIG_ISO9660_FS
-      scripts/config --enable CONFIG_ATA
-      scripts/config --enable CONFIG_SATA_AHCI
-      scripts/config --enable CONFIG_USB
-      scripts/config --enable CONFIG_USB_EHCI_HCD
-      scripts/config --enable CONFIG_USB_XHCI_HCD
-      scripts/config --enable CONFIG_USB_STORAGE
-      scripts/config --enable CONFIG_SCSI
-      scripts/config --enable CONFIG_NET
-      scripts/config --enable CONFIG_E1000
-      scripts/config --enable CONFIG_E1000E
-      scripts/config --enable CONFIG_8139TOO
-      scripts/config --enable CONFIG_PCNET32
-      scripts/config --enable CONFIG_VIRTIO
-      scripts/config --enable CONFIG_VIRTIO_PCI
-      scripts/config --enable CONFIG_VIRTIO_NET
-      scripts/config --enable CONFIG_VIRTIO_BLK
-      scripts/config --enable CONFIG_DRM
-      scripts/config --enable CONFIG_DRM_I915
-      scripts/config --enable CONFIG_DRM_RADEON
-      scripts/config --enable CONFIG_SOUND
-      scripts/config --enable CONFIG_SND
-      scripts/config --enable CONFIG_SND_HDA_INTEL
-      scripts/config --enable CONFIG_BT
-      scripts/config --enable CONFIG_CFG80211
-      scripts/config --enable CONFIG_MAC80211
-      make ARCH=i386 olddefconfig
-  - name: Compilar kernel y módulos
-    working-directory: linux-6.12.20
-    run: |
-      make -j2 ARCH=i386 bzImage modules
-  - name: Instalar módulos
-    working-directory: linux-6.12.20
-    run: |
-      make ARCH=i386 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/kernel-root" modules_install
-  - name: Crear sistema raíz
-    run: |
-      set -eu
-      ROOT="$GITHUB_WORKSPACE/initramfs"
-      mkdir -p "$ROOT"/bin "$ROOT"/dev "$ROOT"/proc "$ROOT"/sys "$ROOT"/etc "$ROOT"/usr/bin
-      cp /bin/busybox "$ROOT/bin/busybox"
-      chmod 755 "$ROOT/bin/busybox"
-      for app in sh mount mkdir cat ls dmesg; do
-        ln -sf busybox "$ROOT/bin/$app"
-      done
-      cat > "$ROOT/init" <<'INIT'
-      #!/bin/sh
-      export PATH=/bin:/sbin:/usr/bin:/usr/sbin
-      mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
-      mount -t proc proc /proc
-      mount -t sysfs sysfs /sys
-      echo "ChiquiOS Linux iniciado"
-      echo "Kernel Linux x86 de 32 bits"
-      exec /bin/sh
-      INIT
-      chmod 755 "$ROOT/init"
-  - name: Empaquetar sistema raíz
-    run: |
-      mkdir -p output
-      cd initramfs
-      find . -print0 | cpio --null -o --format=newc | gzip -9 > "$GITHUB_WORKSPACE/output/initramfs.cpio.gz"
-  - name: Preparar artefactos
-    run: |
-      set -eu
-      cp build/chiquios-test.img output/
-      cp build/boot.bin output/
-      cp build/stage2.bin output/
-      cp linux-6.12.20/arch/x86/boot/bzImage output/bzImage-i386
-      cp linux-6.12.20/.config output/kernel.config
-      tar -czf output/modules-i386.tar.gz -C kernel-root .
-      test -s output/bzImage-i386
-      test -s output/initramfs.cpio.gz
-      test -s output/modules-i386.tar.gz
-  - name: Publicar artefactos
-    uses: actions/upload-artifact@v4
-    with:
-      name: chiquios-linux-x86
-      path: output/
-      if-no-files-found: error
+    steps:
+      - name: Instalar herramientas
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl python3
+
+      - name: Encontrar ISO oficial de Alpine
+        id: alpine
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import re
+          import urllib.request
+
+          base = (
+              "https://dl-cdn.alpinelinux.org/"
+              "alpine/latest-stable/releases/x86/"
+          )
+
+          with urllib.request.urlopen(base, timeout=30) as response:
+              html = response.read().decode()
+
+          files = re.findall(
+              r'href="(alpine-standard-([0-9.]+)-x86\.iso)"',
+              html
+          )
+
+          if not files:
+              raise SystemExit("No se encontró la ISO oficial x86")
+
+          def version_key(item):
+              return tuple(int(x) for x in item[1].split("."))
+
+          filename, version = max(files, key=version_key)
+
+          print("ISO:", filename)
+          print("Version:", version)
+
+          with open("/tmp/alpine-url", "w") as f:
+              f.write(base + filename)
+
+          with open("/tmp/alpine-version", "w") as f:
+              f.write(version)
+          PY
+
+          echo "url=$(cat /tmp/alpine-url)" >> "$GITHUB_OUTPUT"
+          echo "version=$(cat /tmp/alpine-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Descargar Alpine oficial
+        run: |
+          set -euo pipefail
+          mkdir -p output
+
+          curl -fL --retry 3 \
+            "${{ steps.alpine.outputs.url }}" \
+            -o output/chiquios-alpine-x86.iso
+
+          test -s output/chiquios-alpine-x86.iso
+
+      - name: Verificar formato ISO
+        run: |
+          set -euo pipefail
+
+          file output/chiquios-alpine-x86.iso
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("output/chiquios-alpine-x86.iso")
+          with p.open("rb") as f:
+              f.seek(32769)
+              signature = f.read(5)
+
+          if signature != b"CD001":
+              raise SystemExit("La imagen no parece una ISO válida")
+
+          print("ISO verificada:", p.stat().st_size, "bytes")
+          PY
+
+      - name: Publicar ISO de prueba
+        uses: actions/upload-artifact@v4
+        with:
+          name: chiquios-alpine-x86
+          path: output/chiquios-alpine-x86.iso
+          if-no-files-found: error
+          retention-days: 7
