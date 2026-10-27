@@ -1,5 +1,5 @@
 
-name: ChiquiOS Alpine Experimental
+name: Build ChiquiOS Alpine
 
 on:
   workflow_dispatch:
@@ -8,101 +8,136 @@ on:
       - alpine-experimental
     paths:
       - ".github/workflows/build.yml"
+      - "config/chiquios/**"
 
 permissions:
   contents: read
 
 jobs:
-  alpine-x86:
-    name: Alpine Linux x86 (32 bits)
+  build:
+    name: Build ChiquiOS x86
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 180
 
     steps:
-      - name: Instalar herramientas
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Crear ISO personalizada
         run: |
-          sudo apt-get update
-          sudo apt-get install -y curl python3
-
-      - name: Encontrar ISO oficial de Alpine
-        id: alpine
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          python3 - <<'PY'
-          import re
-          import urllib.request
-
-          base = (
-              "https://dl-cdn.alpinelinux.org/"
-              "alpine/latest-stable/releases/x86/"
-          )
-
-          with urllib.request.urlopen(base, timeout=30) as response:
-              html = response.read().decode()
-
-          files = re.findall(
-              r'href="(alpine-standard-([0-9.]+)-x86\.iso)"',
-              html
-          )
-
-          if not files:
-              raise SystemExit("No se encontró la ISO oficial x86")
-
-          def version_key(item):
-              return tuple(int(x) for x in item[1].split("."))
-
-          filename, version = max(files, key=version_key)
-
-          print("ISO:", filename)
-          print("Version:", version)
-
-          with open("/tmp/alpine-url", "w") as f:
-              f.write(base + filename)
-
-          with open("/tmp/alpine-version", "w") as f:
-              f.write(version)
-          PY
-
-          echo "url=$(cat /tmp/alpine-url)" >> "$GITHUB_OUTPUT"
-          echo "version=$(cat /tmp/alpine-version)" >> "$GITHUB_OUTPUT"
-
-      - name: Descargar Alpine oficial
-        run: |
-          set -euo pipefail
+          set -eu
           mkdir -p output
 
-          curl -fL --retry 3 \
-            "${{ steps.alpine.outputs.url }}" \
-            -o output/chiquios-alpine-x86.iso
+          docker run --rm --privileged \
+            -v "$GITHUB_WORKSPACE:/work" \
+            alpine:3.24 \
+            sh -euxc '
+              apk add --no-cache \
+                alpine-conf \
+                abuild \
+                git \
+                syslinux \
+                xorriso \
+                squashfs-tools \
+                grub \
+                mtools \
+                fakeroot
 
-          test -s output/chiquios-alpine-x86.iso
+              abuild-keygen -a -i -n
 
-      - name: Verificar formato ISO
+              git clone --depth=1 \
+                --branch 3.24-stable \
+                https://gitlab.alpinelinux.org/alpine/aports.git \
+                /tmp/aports
+
+              cat > /tmp/aports/scripts/mkimg.chiquios.sh <<'"'"'PROFILE'"'"'
+          profile_chiquios() {
+              profile_standard
+
+              hostname="chiquios"
+
+              apks="$apks nano"
+
+              apkovl="scripts/genapkovl-chiquios.sh"
+          }
+          PROFILE
+
+              cat > /tmp/aports/scripts/genapkovl-chiquios.sh <<'"'"'OVERLAY'"'"'
+          #!/bin/sh
+          set -eu
+
+          tmp="$2"
+
+          mkdir -p "$tmp/etc/profile.d"
+
+          cat > "$tmp/etc/hostname" <<'"'"'HOSTNAME'
+          chiquios
+          HOSTNAME
+
+          cat > "$tmp/etc/motd" <<'"'"'MOTD'
+          =================================
+                 Bienvenido a ChiquiOS
+                 Basado en Alpine Linux
+          =================================
+          Sistema ligero. Hecho por ti.
+          MOTD
+
+          cat > "$tmp/etc/issue" <<'"'"'ISSUE'
+          ChiquiOS - Alpine Linux
+          ISSUE
+
+          cat > "$tmp/etc/profile.d/chiquios.sh" <<'"'"'PROFILE'
+          export CHIQUIOS_EDITION="CLI"
+          export CHIQUIOS_BASE="Alpine Linux"
+
+          chiquios-info() {
+              echo "ChiquiOS - Alpine Linux"
+              uname -a
+          }
+          PROFILE
+          OVERLAY
+
+              chmod +x \
+                /tmp/aports/scripts/genapkovl-chiquios.sh
+
+              cd /tmp/aports
+
+              sh scripts/mkimage.sh \
+                --tag v3.24.2 \
+                --outdir /work/output \
+                --workdir /tmp/mkimage \
+                --arch x86 \
+                --profile chiquios \
+                --repository \
+                https://dl-cdn.alpinelinux.org/alpine/v3.24/main
+
+              iso="$(find /work/output -maxdepth 1 \
+                -type f -name "*.iso" -print -quit)"
+
+              test -n "$iso"
+              test -s "$iso"
+
+              cp "$iso" /work/output/chiquios-alpine-x86.iso
+
+              cd /work/output
+              sha256sum chiquios-alpine-x86.iso \
+                > chiquios-alpine-x86.iso.sha256
+            '
+
+      - name: Comprobar ISO generada
         run: |
-          set -euo pipefail
+          set -eu
+          test -s output/chiquios-alpine-x86.iso
+          test -s output/chiquios-alpine-x86.iso.sha256
+          cat output/chiquios-alpine-x86.iso.sha256
+          ls -lh output/
 
-          file output/chiquios-alpine-x86.iso
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("output/chiquios-alpine-x86.iso")
-          with p.open("rb") as f:
-              f.seek(32769)
-              signature = f.read(5)
-
-          if signature != b"CD001":
-              raise SystemExit("La imagen no parece una ISO válida")
-
-          print("ISO verificada:", p.stat().st_size, "bytes")
-          PY
-
-      - name: Publicar ISO de prueba
+      - name: Publicar ChiquiOS
         uses: actions/upload-artifact@v4
         with:
           name: chiquios-alpine-x86
-          path: output/chiquios-alpine-x86.iso
+          path: |
+            output/chiquios-alpine-x86.iso
+            output/chiquios-alpine-x86.iso.sha256
           if-no-files-found: error
           retention-days: 7
