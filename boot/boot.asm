@@ -1,4 +1,3 @@
-
 BITS 16
 ORG 0x7C00
 
@@ -9,16 +8,16 @@ start:
     mov es, ax
     mov ss, ax
     mov sp, 0x7C00
-    sti
     cld
+    sti
 
     mov [boot_drive], dl
 
     mov si, msg
     call print
 
-    ; Leer el sector 2 en 0000:8000
-    mov ax, 0
+    ; Cargar el sector 2 en 0000:8000
+    xor ax, ax
     mov es, ax
     mov bx, 0x8000
 
@@ -36,7 +35,11 @@ start:
 disk_error:
     mov si, err
     call print
-    jmp $
+
+halt:
+    cli
+    hlt
+    jmp halt
 
 print:
     lodsb
@@ -49,8 +52,8 @@ print:
     ret
 
 boot_drive db 0
-msg db 'ChiquiOS: cargando etapa 2...', 13, 10, 0
-err db 'Error al leer etapa 2.', 13, 10, 0
+msg db 'ChiquiOS Linux: iniciando...', 13, 10, 0
+err db 'Error BIOS: no se pudo leer la segunda etapa.', 13, 10, 0
 
 times 510-($-$$) db 0
 dw 0xAA55
