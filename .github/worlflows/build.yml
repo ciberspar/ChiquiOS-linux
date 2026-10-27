@@ -1,0 +1,38 @@
+
+name: Build ChiquiOS Linux
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v4
+
+      - name: Instalar herramientas
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm make binutils
+
+      - name: Compilar bootloader
+        run: make
+
+      - name: Verificar imagen
+        run: |
+          test -f build/chiquios-test.img
+          test "$(stat -c%s build/chiquios-test.img)" -eq 1474560
+          test "$(od -An -tx1 -j510 -N2 build/chiquios-test.img | tr -d ' \n')" = "55aa"
+          echo "Imagen creada y firma BIOS verificada."
+
+      - name: Guardar imagen
+        uses: actions/upload-artifact@v4
+        with:
+          name: chiquios-linux-test
+          path: build/chiquios-test.img
+          if-no-files-found: error
