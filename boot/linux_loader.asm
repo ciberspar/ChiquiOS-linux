@@ -1,4 +1,3 @@
-
 BITS 16
 ORG 0x8000
 
@@ -9,8 +8,8 @@ stage2_start:
     mov es, ax
     mov ss, ax
     mov sp, 0x7000
-    sti
     cld
+    sti
 
     mov si, msg
     call print
@@ -30,5 +29,6 @@ print:
 .done:
     ret
 
-msg db 'ChiquiOS: segunda etapa funcionando.', 13, 10
-    db 'Siguiente objetivo: cargar kernel Linux x86.', 13, 10, 0
+msg db 13, 10
+    db 'ChiquiOS: segunda etapa verificada.', 13, 10
+    db 'Kernel Linux: pendiente de integracion.', 13, 10, 0
