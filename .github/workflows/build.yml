@@ -43,7 +43,6 @@ jobs:
                 mtools \
                 fakeroot
 
-              abuild-keygen -a -i -n
 
               git clone --depth=1 \
                 --branch 3.24-stable \
