@@ -12,31 +12,45 @@ start:
     sti
     cld
 
-    mov si, mensaje
-    call imprimir
+    mov [boot_drive], dl
 
-detener:
-    cli
-    hlt
-    jmp detener
+    mov si, msg
+    call print
 
-imprimir:
+    ; Leer el sector 2 en 0000:8000
+    mov ax, 0
+    mov es, ax
+    mov bx, 0x8000
+
+    mov ah, 0x02
+    mov al, 1
+    mov ch, 0
+    mov cl, 2
+    mov dh, 0
+    mov dl, [boot_drive]
+    int 0x13
+    jc disk_error
+
+    jmp 0x0000:0x8000
+
+disk_error:
+    mov si, err
+    call print
+    jmp $
+
+print:
     lodsb
     test al, al
-    jz imprimir_fin
-
+    jz .done
     mov ah, 0x0E
-    mov bx, 0x0007
     int 0x10
-    jmp imprimir
-
-imprimir_fin:
+    jmp print
+.done:
     ret
 
-mensaje db 13, 10
-        db 'ChiquiOS Linux - Bootloader propio', 13, 10
-        db 'BIOS x86 iniciado.', 13, 10
-        db 'Cargador Linux: pendiente.', 13, 10, 0
+boot_drive db 0
+msg db 'ChiquiOS: cargando etapa 2...', 13, 10, 0
+err db 'Error al leer etapa 2.', 13, 10, 0
 
 times 510-($-$$) db 0
 dw 0xAA55
